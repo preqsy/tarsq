@@ -1,11 +1,17 @@
 [project]
 name = "tarsq"
-version = "0.1.11"
+version = "0.1.1"
 description = "A fast, production-ready task queue for Python"
 authors = [
     {name = "Preqsy",email = "obbyprecious24@gmail.com"}
 ]
 requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.urls]
+Homepage = "https://github.com/preqsy/Tarsq"
+Repository = "https://github.com/preqsy/Tarsq"
 dependencies = [
     "redis (>=4.0.0)",
     "pydantic (>=2.0.0)",
