@@ -1,0 +1,21 @@
+[project]
+name = "tarsq"
+version = "0.1.11"
+description = "A fast, production-ready task queue for Python"
+authors = [
+    {name = "Preqsy",email = "obbyprecious24@gmail.com"}
+]
+requires-python = ">=3.11"
+dependencies = [
+    "redis (>=4.0.0)",
+    "pydantic (>=2.0.0)",
+    "pydantic-settings (>=2.0.0)"
+]
+
+
+[project.scripts]
+tarsq = "tarsq.cli:start"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
