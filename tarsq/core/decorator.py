@@ -1,4 +1,5 @@
 registry = {}
+cron_registry = {}
 
 
 def task(name: str):
@@ -24,7 +25,18 @@ def task(name: str):
             url = payload["url"]
             ...
     """
+
     def decorator(func):
         registry[name] = func
         return func
+
+    return decorator
+
+
+def schedule(name: str, cron: str = "09****"):
+    def decorator(func):
+        cron_registry["name"] = {"func": func, "cron": cron}
+        print(f"This is the cron function: {cron_registry}")
+        return func
+
     return decorator
