@@ -10,6 +10,7 @@ LEVEL_COLORS = {
     "WARN":  "\033[33m",
     "ERROR": "\033[91m",
     "RETRY": "\033[36m",
+    "CRON":  "\033[35m",
 }
 
 

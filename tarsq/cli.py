@@ -6,6 +6,7 @@ import threading
 import time
 
 from tarsq.core.decorator import registry
+from tarsq.cron import scheduler
 from tarsq.logger import sys_log
 from tarsq.worker import WorkerSettings, worker, watch, shutdown_event, threads, r
 
@@ -117,6 +118,8 @@ def start():
         kwargs={"ctx": ctx},
         daemon=True,
     ).start()
+
+    threading.Thread(target=scheduler, daemon=True).start()
 
     while not shutdown_event.is_set():
         time.sleep(1)
