@@ -10,7 +10,7 @@ import redis
 
 from tarsq.config import settings
 from tarsq.core.decorator import registry
-from tarsq.core.schemas import TaskStatusEnum
+from tarsq.core.schemas import Job, JobStatus, TaskStatusEnum
 from tarsq.logger import log
 
 r = redis.Redis(
@@ -81,10 +81,14 @@ def get_task_from_registry(task_name: str) -> dict:
 
 
 def handle_retry(
-    item_dict: dict, retries: int, worker_id: int, value: str, job_id: str
+    job: Job,
+    retries: int,
+    worker_id: int,
+    value: str,
+    job_id: str,
 ):
     delay = 2**retries
-    task_name = item_dict["task"]
+    task_name = job.task
     log(
         worker_id,
         "RETRY",
@@ -93,7 +97,7 @@ def handle_retry(
     time.sleep(delay)
 
     updated_at = datetime.now(timezone.utc).isoformat()
-    item_dict["retries"] = retries
+    job.retries = retries
 
     r.hset(
         f"tarsq:job:{job_id}",
@@ -104,12 +108,12 @@ def handle_retry(
         },
     )
     r.lrem("tarsq:processing", 1, value)
-    r.lpush("tarsq:queue", json.dumps(item_dict))
+    r.lpush("tarsq:queue", json.dumps(job.model_dump()))
 
 
 def worker(worker_id: int, ctx: dict):
     while not shutdown_event.is_set():
-        value = r.blmove(
+        redis_value = r.blmove(
             "tarsq:queue",
             "tarsq:processing",
             timeout=1,
@@ -117,14 +121,18 @@ def worker(worker_id: int, ctx: dict):
             dest="LEFT",
         )
 
-        if value is None:
+        if redis_value is None:
             continue
 
-        item_dict = json.loads(value)
-        task_name = item_dict["task"]
-        task_payload = item_dict["payload"]
-        retries = item_dict["retries"]
-        job_id = item_dict.get("job_id", None)
+        job_dict = json.loads(redis_value)
+
+        job_obj = Job(**job_dict)
+
+        task_name = job_obj.task
+        task_payload = job_obj.payload
+        retries = job_obj.retries
+
+        job_id = job_obj.job_id
 
         updated_at = datetime.now(timezone.utc).isoformat()
         r.hset(
@@ -159,7 +167,7 @@ def worker(worker_id: int, ctx: dict):
                 r.hset(
                     f"tarsq:job:{job_id}", mapping={"status": TaskStatusEnum.COMPLETED}
                 )
-                r.lrem("tarsq:processing", 1, value)
+                r.lrem("tarsq:processing", 1, redis_value)
                 log(
                     worker_id,
                     "INFO",
@@ -176,7 +184,7 @@ def worker(worker_id: int, ctx: dict):
                 if retries <= max_retries:
                     threading.Thread(
                         target=handle_retry,
-                        args=(item_dict, retries, worker_id, value, job_id),
+                        args=(job_obj, retries, worker_id, redis_value, job_id),
                         daemon=True,
                     ).start()
                 else:
@@ -193,7 +201,7 @@ def worker(worker_id: int, ctx: dict):
                             "updated_at": updated_at,
                         },
                     )
-                    r.lrem("tarsq:processing", 1, value)
+                    r.lrem("tarsq:processing", 1, redis_value)
 
         except ValueError as e:
             log(worker_id, "WARN", str(e))

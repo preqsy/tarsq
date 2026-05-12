@@ -16,3 +16,10 @@ class JobStatus(BaseModel):
     retries: int
     created_at: str
     updated_at: str | None = None
+
+
+class Job(BaseModel):
+    job_id: str | None = None
+    task: str
+    payload: dict
+    retries: int
