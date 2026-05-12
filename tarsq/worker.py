@@ -159,14 +159,24 @@ def worker(worker_id: int, app, shutdown_event, on_startup=None):
         password=settings.REDIS_PASSWORD,
     )
 
+    _reconnect_delay = 1
+
     while not shutdown_event.is_set():
-        redis_value = r.blmove(
-            "tarsq:queue",
-            "tarsq:processing",
-            timeout=1,
-            src="RIGHT",
-            dest="LEFT",
-        )
+        try:
+            redis_value = r.blmove(
+                "tarsq:queue",
+                "tarsq:processing",
+                timeout=1,
+                src="RIGHT",
+                dest="LEFT",
+            )
+        except redis.RedisError as e:
+            log(worker_id, "WARN", f"Redis unavailable — retrying in {_reconnect_delay}s ({type(e).__name__})")
+            time.sleep(_reconnect_delay)
+            _reconnect_delay = min(_reconnect_delay * 2, 30)
+            continue
+
+        _reconnect_delay = 1
 
         if redis_value is None:
             continue
