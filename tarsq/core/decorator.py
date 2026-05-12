@@ -36,11 +36,6 @@ def task(
     """
 
     def decorator(func):
-        registry[name] = {
-            "func": func,
-            "timeout": timeout,
-            "max_retries": max_retries,
-        }
         registry[name] = Task(func=func, timeout=timeout, max_retries=max_retries)
         return func
 

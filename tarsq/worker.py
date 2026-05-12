@@ -1,4 +1,5 @@
 import asyncio
+import signal
 import importlib
 import multiprocessing
 from datetime import datetime, timezone
@@ -13,7 +14,6 @@ from tarsq.core.decorator import registry
 from tarsq.core.schemas import Job, Task, TaskStatusEnum
 from tarsq.logger import log
 
-shutdown_event = multiprocessing.Event()
 processes: list[multiprocessing.Process] = []
 
 
@@ -79,6 +79,7 @@ def handle_retry(
     worker_id: int,
     value: str,
     job_id: str,
+    max_retries: int,
 ):
     r = redis.Redis(
         host=settings.REDIS_HOST,
@@ -92,7 +93,7 @@ def handle_retry(
     log(
         worker_id,
         "RETRY",
-        f"{task_name} [{job_id[:8]}] — retrying in {delay}s (attempt {retries}/3)",
+        f"{task_name} [{job_id[:8]}] — retrying in {delay}s (attempt {retries}/{max_retries})",
     )
     time.sleep(delay)
 
@@ -111,8 +112,9 @@ def handle_retry(
     r.lpush("tarsq:queue", json.dumps(job.model_dump()))
 
 
-def worker(worker_id: int, app, ctx: dict):
+def worker(worker_id: int, app, shutdown_event, ctx: dict):
     importlib.import_module(app)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     r = redis.Redis(
         host=settings.REDIS_HOST,
@@ -170,15 +172,20 @@ def worker(worker_id: int, app, ctx: dict):
                     args=(ctx, func, task_payload),
                 )
                 p.start()
-                p.join(timeout=timeout)
+                try:
+                    p.join(timeout=timeout)
 
-                if p.is_alive():
-                    p.kill()
-                    p.join()
-                    raise TimeoutError(f"task exceeded timeout of {timeout}s")
+                    if p.is_alive():
+                        p.kill()
+                        p.join()
+                        raise TimeoutError(f"task exceeded timeout of {timeout}s")
 
-                if p.exitcode != 0:
-                    raise RuntimeError(f"task process exited with code {p.exitcode}")
+                    if p.exitcode != 0:
+                        raise RuntimeError(
+                            f"task process exited with code {p.exitcode}"
+                        )
+                finally:
+                    p.close()
 
                 elapsed = time.monotonic() - start
                 r.hset(
@@ -201,7 +208,14 @@ def worker(worker_id: int, app, ctx: dict):
                 if retries <= max_retries:
                     multiprocessing.Process(
                         target=handle_retry,
-                        args=(job_obj, retries, worker_id, redis_value, job_id),
+                        args=(
+                            job_obj,
+                            retries,
+                            worker_id,
+                            redis_value,
+                            job_id,
+                            max_retries,
+                        ),
                     ).start()
                 else:
                     log(
@@ -223,7 +237,8 @@ def worker(worker_id: int, app, ctx: dict):
             log(worker_id, "WARN", str(e))
 
 
-def watch(app, ctx: dict = None):
+def watch(app, shutdown_event, ctx: dict = None):
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     importlib.import_module(app)
     while not shutdown_event.is_set():
         for i, p in enumerate(processes):
@@ -231,7 +246,7 @@ def watch(app, ctx: dict = None):
                 log(i, "WARN", "crashed — restarting")
                 new_process = multiprocessing.Process(
                     target=worker,
-                    args=(i, app),
+                    args=(i, app, shutdown_event),
                     kwargs={"ctx": ctx},
                 )
                 processes[i] = new_process

@@ -12,7 +12,9 @@ from tarsq.config import settings
 from tarsq.core.decorator import registry
 from tarsq.cron import scheduler
 from tarsq.logger import sys_log
-from tarsq.worker import WorkerSettings, worker, watch, shutdown_event, processes
+from tarsq.worker import WorkerSettings, worker, watch, processes
+
+shutdown_event = multiprocessing.Event()
 
 
 def print_registry():
@@ -105,7 +107,7 @@ def start():
     for i in range(ws.workers):
         p = multiprocessing.Process(
             target=worker,
-            args=(i, ws.app),
+            args=(i, ws.app, shutdown_event),
             kwargs={"ctx": ctx},
         )
         processes.append(p)
@@ -118,15 +120,18 @@ def start():
         p.start()
 
     print()
-    multiprocessing.Process(
+    p_worker = multiprocessing.Process(
         target=watch,
-        args=(ws.app,),
+        args=(ws.app, shutdown_event),
         kwargs={"ctx": ctx},
-    ).start()
+    )
 
     multiprocessing.Process(
-        target=scheduler, daemon=True
-    ).start()  # TODO: Check this nigga out
+        target=scheduler,
+        args=(shutdown_event,),
+        daemon=True,
+    ).start()
+    p_worker.start()
 
     while not shutdown_event.is_set():
         time.sleep(1)
@@ -141,5 +146,5 @@ def start():
             asyncio.run(ws.on_shutdown(ctx))
         else:
             ws.on_shutdown(ctx)
-
+    p_worker.join()
     sys_log("INFO", "all workers stopped — goodbye")

@@ -3,11 +3,16 @@ from tarsq.core.decorator import task, schedule
 
 
 # @schedule(name="send_email", cron="every minute")  # Cron Jobs
-@task(name="send_email", max_retries=1, timeout=1)
+@task(
+    name="send_email",
+    max_retries=1,
+    timeout=2,
+)
 async def send_email(ctx, payload):
-
-    time.sleep(2)
-    print(f"  -> email sent: to: obbyprecious24@gmail.com")
+    print(f"This is the context: {ctx}")
+    email = payload["email"]
+    time.sleep(4)
+    print(f"  -> email sent: to: {email}")
 
 
 @task(name="resize_image")

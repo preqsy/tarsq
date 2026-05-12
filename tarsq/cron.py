@@ -1,3 +1,4 @@
+import signal
 import time
 from datetime import datetime
 
@@ -6,10 +7,10 @@ from croniter import croniter
 from tarsq.client import dispatch
 from tarsq.core.decorator import cron_registry
 from tarsq.logger import sys_log
-from tarsq.worker import shutdown_event
 
 
-def scheduler():
+def scheduler(shutdown_event):
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     sys_log("CRON", "scheduler started")
 
     while not shutdown_event.is_set():
@@ -28,3 +29,4 @@ def scheduler():
             time.sleep(1)
 
     sys_log("CRON", "scheduler stopped")
+
