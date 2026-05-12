@@ -14,8 +14,6 @@ from tarsq.cron import scheduler
 from tarsq.logger import sys_log
 from tarsq.worker import WorkerSettings, worker, watch, processes
 
-shutdown_event = multiprocessing.Event()
-
 
 def print_registry():
     if not registry:
@@ -58,6 +56,9 @@ def _load_settings(settings_path: str) -> WorkerSettings:
 
 
 def start():
+    _manager = multiprocessing.Manager()
+    shutdown_event = _manager.Event()
+
     parser = argparse.ArgumentParser(description="Start tarsq workers")
     parser.add_argument(
         "--settings",

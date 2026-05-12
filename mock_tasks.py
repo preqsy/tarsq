@@ -6,7 +6,7 @@ from tarsq.core.decorator import task, schedule
 @task(
     name="send_email",
     max_retries=1,
-    timeout=2,
+    # timeout=2,
 )
 async def send_email(ctx, payload):
     print(f"This is the context: {ctx}")
