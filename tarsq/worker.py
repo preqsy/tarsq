@@ -18,37 +18,46 @@ processes: list[multiprocessing.Process] = []
 
 
 class WorkerSettings:
-    """Configuration class for the tarsq worker.
+    """Configuration for the tarsq worker process.
 
-    Subclass this in your project to configure the worker instead of
-    passing CLI arguments. Pass the path to your subclass via
-    `tarsq --settings myapp.MyWorkerSettings`.
+    Define a class with any subset of these attributes in your project.
+    Inheritance from this class is optional — tarsq reads all settings
+    via getattr() with fallbacks, so you only need to declare what you
+    want to override.
+
+    Pass the dotted path to your class via the CLI:
+        tarsq --settings myapp.MyWorkerSettings
 
     Attributes:
-        app: Dotted module path containing your @task handlers
-            (e.g. "myapp.tasks"). The module will be imported on startup
-            to register all tasks.
-        workers: Number of concurrent worker threads to run. Defaults to 5.
-        timeout: Maximum number of seconds a single task is allowed to run
-            before it is killed and marked as failed. Defaults to 300.
-        on_startup: Optional function (sync or async) called once before
-            workers start. Use this to set up shared resources.
-        on_shutdown: Optional function (sync or async) called once after
-            all workers have stopped. Use this to clean up resources.
+        app: Dotted module path to import on startup so that @task and
+            @schedule decorators register themselves (e.g. "myapp.tasks").
+            If not set, only tasks already in scope will be available.
+        workers: Number of concurrent worker processes. Defaults to 5.
+        ctx: Shared context dict passed to every task handler. Avoid
+            putting live resources (db sessions, connections) here directly
+            — use on_startup to build them inside each worker process
+            instead, since ctx is not pickled across process boundaries.
+        on_startup: Optional sync or async function called inside each
+            worker process after it spawns. Use this to initialise
+            per-process resources (db connections, clients) and store them
+            in the ctx dict.
+        on_shutdown: Optional sync or async function called once in the
+            main process after all workers have exited. Use this to flush
+            or close any top-level resources.
 
     Example:
+        import asyncio
         from tarsq import WorkerSettings
 
-        async def startup():
-            print("starting up...")
+        async def startup(ctx):
+            ctx["db"] = await create_db_pool()
 
-        async def shutdown():
-            print("shutting down...")
+        async def shutdown(ctx):
+            await ctx["db"].close()
 
         class MyWorkerSettings(WorkerSettings):
             app = "myapp.tasks"
-            workers = 3
-            timeout = 60
+            workers = 4
             on_startup = startup
             on_shutdown = shutdown
     """
@@ -69,7 +78,9 @@ def _run_task(ctx, func, payload):
 
 def get_task_from_registry(task_name: str) -> Task:
     if task_name not in registry:
-        raise ValueError(f"Unknown task: {task_name}")
+        raise ValueError(
+            f"unknown task '{task_name}' — is the module containing @task('{task_name}') imported?"
+        )
     return registry[task_name]
 
 
@@ -124,8 +135,6 @@ def worker(worker_id: int, app, shutdown_event, on_startup=None):
             if inspect.iscoroutinefunction(on_startup)
             else on_startup(ctx)
         )
-
-    print(f"This is the startup ctx: {ctx}")
 
     r = redis.Redis(
         host=settings.REDIS_HOST,
@@ -256,7 +265,7 @@ def watch(app, shutdown_event, on_startup=None):
     while not shutdown_event.is_set():
         for i, p in enumerate(processes):
             if not p.is_alive() and not shutdown_event.is_set():
-                log(i, "WARN", "crashed — restarting")
+                log(i, "WARN", "worker crashed — restarting")
                 new_process = multiprocessing.Process(
                     target=worker,
                     args=(i, app, shutdown_event, on_startup),

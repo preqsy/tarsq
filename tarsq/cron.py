@@ -18,7 +18,7 @@ def scheduler(shutdown_event):
 
         for name, entry in cron_registry.items():
             if croniter.match(entry["cron"], now):
-                sys_log("CRON", f"triggered  {name}  [{entry['cron']}]")
+                sys_log("CRON", f"dispatching  {name}  [{entry['cron']}]")
                 dispatch(name)
 
         # sleep until the top of the next minute, checking shutdown every second

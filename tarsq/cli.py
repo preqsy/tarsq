@@ -3,7 +3,6 @@ import multiprocessing
 import importlib
 import inspect
 import signal
-import threading
 import time
 
 import redis
@@ -17,7 +16,7 @@ from tarsq.worker import WorkerSettings, worker, watch, processes
 
 def print_registry():
     if not registry:
-        sys_log("WARN", "no tasks registered — did you pass --app or --settings?")
+        sys_log("WARN", "no tasks registered — did you pass --app or set WorkerSettings.app?")
         return
 
     max_len = max(len(name) for name in registry)
@@ -42,11 +41,11 @@ def recover_stuck_tasks():
 
     stuck = r.lrange("tarsq:processing", 0, -1)
     if stuck:
-        sys_log("WARN", f"recovering {len(stuck)} stuck task(s) from previous run")
+        sys_log("WARN", f"recovering {len(stuck)} stuck job(s) left in processing from a previous run")
         for item in stuck:
             r.lpush("tarsq:queue", item)
         r.delete("tarsq:processing")
-        sys_log("INFO", "recovery complete")
+        sys_log("INFO", f"re-queued {len(stuck)} job(s) — they will be retried")
 
 
 def _load_settings(settings_path: str) -> WorkerSettings:
@@ -91,10 +90,10 @@ def start():
     if app:
         importlib.import_module(app)
     else:
-        sys_log("WARN", "no --app specified and WorkerSettings.app is not set — tasks registered in external modules won't be available")
+        sys_log("WARN", "no app configured — set WorkerSettings.app or pass --app <module>. tasks in external modules will not be registered")
 
     def handle_signal(sig, frame):
-        sys_log("WARN", "shutdown signal received — waiting for workers to finish")
+        sys_log("WARN", "shutdown signal received — draining workers")
         shutdown_event.set()
 
     signal.signal(signal.SIGINT, handle_signal)
@@ -102,7 +101,7 @@ def start():
 
     recover_stuck_tasks()
     print_registry()
-    sys_log("INFO", f"starting {workers} workers")
+    sys_log("INFO", f"starting {workers} worker process(es)")
 
     for i in range(workers):
         p = multiprocessing.Process(
@@ -145,4 +144,4 @@ def start():
         else:
             on_shutdown(ctx)
     p_worker.join()
-    sys_log("INFO", "all workers stopped — goodbye")
+    sys_log("INFO", "all workers stopped")
