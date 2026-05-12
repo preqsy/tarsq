@@ -62,7 +62,6 @@ class WorkerSettings:
 
     app: str = None
     workers: int = 5
-    timeout: int = 300
     ctx: dict = {}
     on_startup = None
     on_shutdown = None
@@ -75,7 +74,7 @@ def _run_task(ctx, func, payload):
         func(ctx, payload)
 
 
-def get_task_from_registry(task_name: str):
+def get_task_from_registry(task_name: str) -> dict:
     if task_name not in registry:
         raise ValueError(f"Unknown task: {task_name}")
     return registry[task_name]
@@ -108,7 +107,7 @@ def handle_retry(
     r.lpush("tarsq:queue", json.dumps(item_dict))
 
 
-def worker(worker_id: int, timeout: int, ctx: dict):
+def worker(worker_id: int, ctx: dict):
     while not shutdown_event.is_set():
         value = r.blmove(
             "tarsq:queue",
@@ -138,6 +137,11 @@ def worker(worker_id: int, timeout: int, ctx: dict):
 
         try:
             task = get_task_from_registry(task_name)
+
+            func = task["func"]
+            timeout = task["timeout"]
+            max_retries = task["max_retries"]
+
             log(worker_id, "INFO", f"picked up  {task_name} [{job_id[:8]}]")
             try:
                 start = time.monotonic()
@@ -145,9 +149,10 @@ def worker(worker_id: int, timeout: int, ctx: dict):
                     future = executor.submit(
                         _run_task,
                         ctx,
-                        task,
+                        func,
                         task_payload,
                     )
+
                     future.result(timeout=timeout)
 
                 elapsed = time.monotonic() - start
@@ -168,7 +173,7 @@ def worker(worker_id: int, timeout: int, ctx: dict):
                     "ERROR",
                     f"failed     {task_name} [{job_id[:8]}] — {type(e).__name__}: {e} (attempt {retries}/3)",
                 )
-                if retries <= 3:
+                if retries <= max_retries:
                     threading.Thread(
                         target=handle_retry,
                         args=(item_dict, retries, worker_id, value, job_id),
@@ -194,7 +199,7 @@ def worker(worker_id: int, timeout: int, ctx: dict):
             log(worker_id, "WARN", str(e))
 
 
-def watch(timeout: int, ctx: dict = None):
+def watch(ctx: dict = None):
     while not shutdown_event.is_set():
         for i, t in enumerate(threads):
             if not t.is_alive() and not shutdown_event.is_set():
@@ -202,7 +207,7 @@ def watch(timeout: int, ctx: dict = None):
                 new_thread = threading.Thread(
                     target=worker,
                     args=(i,),
-                    kwargs={"timeout": timeout, "ctx": ctx},
+                    kwargs={"ctx": ctx},
                     daemon=True,
                 )
                 threads[i] = new_thread

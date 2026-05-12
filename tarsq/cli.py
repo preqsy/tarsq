@@ -55,9 +55,7 @@ def start():
         "--app", type=str, help="Module containing task handlers (e.g. 'myapp.tasks')"
     )
     parser.add_argument("--workers", type=int, help="Number of workers (default: 5)")
-    parser.add_argument(
-        "--timeout", type=int, help="Task timeout in seconds (default: 300)"
-    )
+
     args = parser.parse_args()
 
     ws = WorkerSettings()
@@ -69,8 +67,6 @@ def start():
         ws.app = args.app
     if args.workers:
         ws.workers = args.workers
-    if args.timeout:
-        ws.timeout = args.timeout
     ctx = ws.ctx
     if ws.app:
         importlib.import_module(ws.app)
@@ -99,7 +95,7 @@ def start():
         t = threading.Thread(
             target=worker,
             args=(i,),
-            kwargs={"timeout": ws.timeout, "ctx": ctx},
+            kwargs={"ctx": ctx},
             daemon=True,
         )
         threads.append(t)
@@ -114,7 +110,6 @@ def start():
     print()
     threading.Thread(
         target=watch,
-        args=(ws.timeout,),
         kwargs={"ctx": ctx},
         daemon=True,
     ).start()

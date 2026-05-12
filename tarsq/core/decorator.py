@@ -2,7 +2,12 @@ registry = {}
 cron_registry = {}
 
 
-def task(name: str):
+def task(
+    name: str,
+    *,
+    timeout: int = 30,
+    max_retries: int = 3,
+):
     """Register a function as a tarsq task handler.
 
     Decorates a function and adds it to the task registry under the given
@@ -27,7 +32,11 @@ def task(name: str):
     """
 
     def decorator(func):
-        registry[name] = func
+        registry[name] = {
+            "func": func,
+            "timeout": timeout,
+            "max_retries": max_retries,
+        }
         return func
 
     return decorator
