@@ -1,14 +1,18 @@
 import argparse
+import multiprocessing
 import importlib
 import inspect
 import signal
 import threading
 import time
 
+import redis
+
+from tarsq.config import settings
 from tarsq.core.decorator import registry
 from tarsq.cron import scheduler
 from tarsq.logger import sys_log
-from tarsq.worker import WorkerSettings, worker, watch, shutdown_event, threads, r
+from tarsq.worker import WorkerSettings, worker, watch, shutdown_event, processes
 
 
 def print_registry():
@@ -29,6 +33,13 @@ def print_registry():
 
 
 def recover_stuck_tasks():
+    r = redis.Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        decode_responses=True,
+        password=settings.REDIS_PASSWORD,
+    )
+
     stuck = r.lrange("tarsq:processing", 0, -1)
     if stuck:
         sys_log("WARN", f"recovering {len(stuck)} stuck task(s) from previous run")
@@ -92,35 +103,37 @@ def start():
     sys_log("INFO", f"starting {ws.workers} workers")
 
     for i in range(ws.workers):
-        t = threading.Thread(
+        p = multiprocessing.Process(
             target=worker,
-            args=(i,),
+            args=(i, ws.app),
             kwargs={"ctx": ctx},
-            daemon=True,
+            # daemon=True,
         )
-        threads.append(t)
+        processes.append(p)
 
     print()
-    for i, t in enumerate(threads):
+    for i, p in enumerate(processes):
         from tarsq.logger import log
 
         log(i, "INFO", "started")
-        t.start()
+        p.start()
 
     print()
-    threading.Thread(
+    multiprocessing.Process(
         target=watch,
         kwargs={"ctx": ctx},
         daemon=True,
     ).start()
 
-    threading.Thread(target=scheduler, daemon=True).start()
+    threading.Thread(
+        target=scheduler, daemon=True
+    ).start()  # TODO: Check this nigga out
 
     while not shutdown_event.is_set():
         time.sleep(1)
 
-    for t in threads:
-        t.join()
+    for p in processes:
+        p.join()
 
     if ws.on_shutdown:
         if inspect.iscoroutinefunction(ws.on_shutdown):

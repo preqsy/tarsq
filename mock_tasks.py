@@ -2,7 +2,7 @@ import time
 from tarsq.core.decorator import task, schedule
 
 
-@schedule(name="send_email", cron="every minute")  # Cron Jobs
+# @schedule(name="send_email", cron="every minute")  # Cron Jobs
 @task(name="send_email", max_retries=1, timeout=1)
 async def send_email(ctx, payload):
 

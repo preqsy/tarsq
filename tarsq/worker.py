@@ -1,5 +1,6 @@
 import asyncio
-import concurrent.futures
+import importlib
+import multiprocessing
 from datetime import datetime, timezone
 import inspect
 import json
@@ -13,15 +14,8 @@ from tarsq.core.decorator import registry
 from tarsq.core.schemas import Job, Task, TaskStatusEnum
 from tarsq.logger import log
 
-r = redis.Redis(
-    host=settings.REDIS_HOST,
-    port=settings.REDIS_PORT,
-    decode_responses=True,
-    password=settings.REDIS_PASSWORD,
-)
-
-shutdown_event = threading.Event()
-threads: list[threading.Thread] = []
+shutdown_event = multiprocessing.Event()
+processes: list[multiprocessing.Process] = []
 
 
 class WorkerSettings:
@@ -75,7 +69,7 @@ def _run_task(ctx, func, payload):
 
 
 def get_task_from_registry(task_name: str) -> Task:
-
+    print(f"These are the registered tasks: {registry}")
     if task_name not in registry:
         raise ValueError(f"Unknown task: {task_name}")
     return registry[task_name]
@@ -88,6 +82,13 @@ def handle_retry(
     value: str,
     job_id: str,
 ):
+    r = redis.Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        decode_responses=True,
+        password=settings.REDIS_PASSWORD,
+    )
+
     delay = 2**retries
     task_name = job.task
     log(
@@ -112,7 +113,16 @@ def handle_retry(
     r.lpush("tarsq:queue", json.dumps(job.model_dump()))
 
 
-def worker(worker_id: int, ctx: dict):
+def worker(worker_id: int, app, ctx: dict):
+    importlib.import_module(app)
+
+    r = redis.Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        decode_responses=True,
+        password=settings.REDIS_PASSWORD,
+    )
+
     while not shutdown_event.is_set():
         redis_value = r.blmove(
             "tarsq:queue",
@@ -157,15 +167,20 @@ def worker(worker_id: int, ctx: dict):
             log(worker_id, "INFO", f"picked up  {task_name} [{job_id[:8]}]")
             try:
                 start = time.monotonic()
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(
-                        _run_task,
-                        ctx,
-                        func,
-                        task_payload,
-                    )
+                p = multiprocessing.Process(
+                    target=_run_task,
+                    args=(ctx, func, task_payload),
+                )
+                p.start()
+                p.join(timeout=timeout)
 
-                    future.result(timeout=timeout)
+                if p.is_alive():
+                    p.kill()
+                    p.join()
+                    raise TimeoutError(f"task exceeded timeout of {timeout}s")
+
+                if p.exitcode != 0:
+                    raise RuntimeError(f"task process exited with code {p.exitcode}")
 
                 elapsed = time.monotonic() - start
                 r.hset(
@@ -186,10 +201,9 @@ def worker(worker_id: int, ctx: dict):
                     f"failed     {task_name} [{job_id[:8]}] — {type(e).__name__}: {e} (attempt {retries}/{task.max_retries})",
                 )
                 if retries <= max_retries:
-                    threading.Thread(
+                    multiprocessing.Process(
                         target=handle_retry,
                         args=(job_obj, retries, worker_id, redis_value, job_id),
-                        daemon=True,
                     ).start()
                 else:
                     log(
@@ -213,15 +227,15 @@ def worker(worker_id: int, ctx: dict):
 
 def watch(ctx: dict = None):
     while not shutdown_event.is_set():
-        for i, t in enumerate(threads):
-            if not t.is_alive() and not shutdown_event.is_set():
+        for i, p in enumerate(processes):
+            if not p.is_alive() and not shutdown_event.is_set():
                 log(i, "WARN", "crashed — restarting")
-                new_thread = threading.Thread(
+                new_process = multiprocessing.Process(
                     target=worker,
                     args=(i,),
                     kwargs={"ctx": ctx},
                     daemon=True,
                 )
-                threads[i] = new_thread
-                new_thread.start()
+                processes[i] = new_process
+                new_process.start()
         time.sleep(2)
