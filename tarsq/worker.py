@@ -5,6 +5,7 @@ import multiprocessing
 from datetime import datetime, timezone
 import inspect
 import json
+import pickle
 import time
 
 import redis
@@ -67,6 +68,19 @@ class WorkerSettings:
     ctx: dict = {}
     on_startup = None
     on_shutdown = None
+
+
+def _check_ctx_picklable(worker_id: int, ctx: dict):
+    for key, value in ctx.items():
+        try:
+            pickle.dumps(value)
+        except Exception:
+            log(
+                worker_id,
+                "WARN",
+                f"ctx['{key}'] ({type(value).__name__}) is not picklable — tasks will fail with PicklingError. "
+                f"Store a factory or class instead of a live instance.",
+            )
 
 
 def _run_task(ctx, func, payload):
@@ -135,6 +149,8 @@ def worker(worker_id: int, app, shutdown_event, on_startup=None):
             if inspect.iscoroutinefunction(on_startup)
             else on_startup(ctx)
         )
+
+    _check_ctx_picklable(worker_id, ctx)
 
     r = redis.Redis(
         host=settings.REDIS_HOST,
