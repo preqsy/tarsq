@@ -1,4 +1,8 @@
-registry = {}
+from typing import Dict
+
+from tarsq.core.schemas import Task
+
+registry: Dict[str, Task] = {}
 cron_registry = {}
 
 
@@ -37,6 +41,7 @@ def task(
             "timeout": timeout,
             "max_retries": max_retries,
         }
+        registry[name] = Task(func=func, timeout=timeout, max_retries=max_retries)
         return func
 
     return decorator

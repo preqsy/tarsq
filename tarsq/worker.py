@@ -10,7 +10,7 @@ import redis
 
 from tarsq.config import settings
 from tarsq.core.decorator import registry
-from tarsq.core.schemas import Job, JobStatus, TaskStatusEnum
+from tarsq.core.schemas import Job, Task, TaskStatusEnum
 from tarsq.logger import log
 
 r = redis.Redis(
@@ -74,7 +74,8 @@ def _run_task(ctx, func, payload):
         func(ctx, payload)
 
 
-def get_task_from_registry(task_name: str) -> dict:
+def get_task_from_registry(task_name: str) -> Task:
+
     if task_name not in registry:
         raise ValueError(f"Unknown task: {task_name}")
     return registry[task_name]
@@ -134,6 +135,9 @@ def worker(worker_id: int, ctx: dict):
 
         job_id = job_obj.job_id
 
+        if not job_id:
+            continue
+
         updated_at = datetime.now(timezone.utc).isoformat()
         r.hset(
             f"tarsq:job:{job_id}",
@@ -146,9 +150,9 @@ def worker(worker_id: int, ctx: dict):
         try:
             task = get_task_from_registry(task_name)
 
-            func = task["func"]
-            timeout = task["timeout"]
-            max_retries = task["max_retries"]
+            func = task.func
+            timeout = task.timeout
+            max_retries = task.max_retries
 
             log(worker_id, "INFO", f"picked up  {task_name} [{job_id[:8]}]")
             try:
@@ -179,7 +183,7 @@ def worker(worker_id: int, ctx: dict):
                 log(
                     worker_id,
                     "ERROR",
-                    f"failed     {task_name} [{job_id[:8]}] — {type(e).__name__}: {e} (attempt {retries}/3)",
+                    f"failed     {task_name} [{job_id[:8]}] — {type(e).__name__}: {e} (attempt {retries}/{task.max_retries})",
                 )
                 if retries <= max_retries:
                     threading.Thread(

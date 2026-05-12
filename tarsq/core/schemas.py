@@ -1,5 +1,6 @@
 from enum import Enum
-from pydantic import BaseModel
+from typing import Callable
+from pydantic import BaseModel, Field
 
 
 class TaskStatusEnum(str, Enum):
@@ -23,3 +24,9 @@ class Job(BaseModel):
     task: str
     payload: dict
     retries: int
+
+
+class Task(BaseModel):
+    func: Callable
+    timeout: int
+    max_retries: int
