@@ -4,7 +4,6 @@ import multiprocessing
 from datetime import datetime, timezone
 import inspect
 import json
-import threading
 import time
 
 import redis
@@ -69,7 +68,6 @@ def _run_task(ctx, func, payload):
 
 
 def get_task_from_registry(task_name: str) -> Task:
-    print(f"These are the registered tasks: {registry}")
     if task_name not in registry:
         raise ValueError(f"Unknown task: {task_name}")
     return registry[task_name]
@@ -225,16 +223,16 @@ def worker(worker_id: int, app, ctx: dict):
             log(worker_id, "WARN", str(e))
 
 
-def watch(ctx: dict = None):
+def watch(app, ctx: dict = None):
+    importlib.import_module(app)
     while not shutdown_event.is_set():
         for i, p in enumerate(processes):
             if not p.is_alive() and not shutdown_event.is_set():
                 log(i, "WARN", "crashed — restarting")
                 new_process = multiprocessing.Process(
                     target=worker,
-                    args=(i,),
+                    args=(i, app),
                     kwargs={"ctx": ctx},
-                    daemon=True,
                 )
                 processes[i] = new_process
                 new_process.start()

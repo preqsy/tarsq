@@ -26,7 +26,7 @@ def print_registry():
     print(f"\n  {'REGISTERED TASKS':^{width}}")
     print(f"  {'─' * width}")
     for name, func in registry.items():
-        kind = "async" if inspect.iscoroutinefunction(func) else "sync"
+        kind = "async" if inspect.iscoroutinefunction(func.func) else "sync"
         print(f"  ✓  {name:<{max_len}}   [{kind}]")
     print(f"  {'─' * width}")
     print(f"  {len(registry)} task(s) registered\n")
@@ -107,7 +107,6 @@ def start():
             target=worker,
             args=(i, ws.app),
             kwargs={"ctx": ctx},
-            # daemon=True,
         )
         processes.append(p)
 
@@ -121,11 +120,11 @@ def start():
     print()
     multiprocessing.Process(
         target=watch,
+        args=(ws.app,),
         kwargs={"ctx": ctx},
-        daemon=True,
     ).start()
 
-    threading.Thread(
+    multiprocessing.Process(
         target=scheduler, daemon=True
     ).start()  # TODO: Check this nigga out
 
