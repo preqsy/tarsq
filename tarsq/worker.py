@@ -112,9 +112,19 @@ def handle_retry(
     r.lpush("tarsq:queue", json.dumps(job.model_dump()))
 
 
-def worker(worker_id: int, app, shutdown_event, ctx: dict):
+def worker(worker_id: int, app, shutdown_event, on_startup=None):
     importlib.import_module(app)
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+    ctx = {}
+    if on_startup:
+        (
+            asyncio.run(on_startup(ctx))
+            if inspect.iscoroutinefunction(on_startup)
+            else on_startup(ctx)
+        )
+
+    print(f"This is the startup ctx: {ctx}")
 
     r = redis.Redis(
         host=settings.REDIS_HOST,
@@ -237,17 +247,17 @@ def worker(worker_id: int, app, shutdown_event, ctx: dict):
             log(worker_id, "WARN", str(e))
 
 
-def watch(app, shutdown_event, ctx: dict = None):
+def watch(app, shutdown_event, on_startup=None):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     importlib.import_module(app)
+
     while not shutdown_event.is_set():
         for i, p in enumerate(processes):
             if not p.is_alive() and not shutdown_event.is_set():
                 log(i, "WARN", "crashed — restarting")
                 new_process = multiprocessing.Process(
                     target=worker,
-                    args=(i, app, shutdown_event),
-                    kwargs={"ctx": ctx},
+                    args=(i, app, shutdown_event, on_startup),
                 )
                 processes[i] = new_process
                 new_process.start()

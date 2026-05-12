@@ -1,7 +1,10 @@
+def on_startup(ctx):
+    ctx["crud_currency"] = "get_crud_currency"
+
+
 class WorkerSettings:
-    app: str = "mock_tasks"
-    workers: int = 3
-    timeout: int = 300
+    # app: str = "mock_tasks"
     ctx: dict = {"crud_currency": "get_crud_currency"}
-    on_startup = None
+    on_startup = on_startup
     on_shutdown = None
+    # workers: int = 5

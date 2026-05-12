@@ -81,18 +81,15 @@ def start():
         ws.app = args.app
     if args.workers:
         ws.workers = args.workers
-    ctx = ws.ctx
-    if ws.app:
-        importlib.import_module(ws.app)
 
-    if ws.on_startup:
-        if inspect.iscoroutinefunction(ws.on_startup):
-            import asyncio
+    app = getattr(ws, "app", None)
+    workers = getattr(ws, "workers", 5)
+    on_startup = getattr(ws, "on_startup", None)
+    on_shutdown = getattr(ws, "on_shutdown", None)
+    ctx = getattr(ws, "ctx", {})
 
-            asyncio.run(ws.on_startup(ctx))
-        else:
-
-            ws.on_startup(ctx)
+    if app:
+        importlib.import_module(app)
 
     def handle_signal(sig, frame):
         sys_log("WARN", "shutdown signal received — waiting for workers to finish")
@@ -103,13 +100,12 @@ def start():
 
     recover_stuck_tasks()
     print_registry()
-    sys_log("INFO", f"starting {ws.workers} workers")
+    sys_log("INFO", f"starting {workers} workers")
 
-    for i in range(ws.workers):
+    for i in range(workers):
         p = multiprocessing.Process(
             target=worker,
-            args=(i, ws.app, shutdown_event),
-            kwargs={"ctx": ctx},
+            args=(i, app, shutdown_event, on_startup),
         )
         processes.append(p)
 
@@ -123,8 +119,7 @@ def start():
     print()
     p_worker = multiprocessing.Process(
         target=watch,
-        args=(ws.app, shutdown_event),
-        kwargs={"ctx": ctx},
+        args=(app, shutdown_event, on_startup),
     )
 
     multiprocessing.Process(
@@ -140,12 +135,12 @@ def start():
     for p in processes:
         p.join()
 
-    if ws.on_shutdown:
-        if inspect.iscoroutinefunction(ws.on_shutdown):
+    if on_shutdown:
+        if inspect.iscoroutinefunction(on_shutdown):
             import asyncio
 
-            asyncio.run(ws.on_shutdown(ctx))
+            asyncio.run(on_shutdown(ctx))
         else:
-            ws.on_shutdown(ctx)
+            on_shutdown(ctx)
     p_worker.join()
     sys_log("INFO", "all workers stopped — goodbye")
