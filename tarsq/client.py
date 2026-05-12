@@ -47,6 +47,10 @@ def dispatch(
         payload = payload.model_dump()
     elif payload is None:
         payload = {}
+    elif isinstance(payload, dict):
+        payload = payload
+    else:
+        raise ValueError("Invalid type")
 
     job_id = str(uuid.uuid4())
     job = {"job_id": job_id, "task": task_name, "payload": payload, "retries": 0}

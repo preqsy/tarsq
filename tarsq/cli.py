@@ -1,18 +1,22 @@
 import argparse
+import multiprocessing
 import importlib
 import inspect
 import signal
-import threading
 import time
 
+import redis
+
+from tarsq.config import settings
 from tarsq.core.decorator import registry
+from tarsq.cron import scheduler
 from tarsq.logger import sys_log
-from tarsq.worker import WorkerSettings, worker, watch, shutdown_event, threads, r
+from tarsq.worker import WorkerSettings, worker, watch, processes
 
 
 def print_registry():
     if not registry:
-        sys_log("WARN", "no tasks registered — did you pass --app or --settings?")
+        sys_log("WARN", "no tasks registered — did you pass --app or set WorkerSettings.app?")
         return
 
     max_len = max(len(name) for name in registry)
@@ -21,20 +25,27 @@ def print_registry():
     print(f"\n  {'REGISTERED TASKS':^{width}}")
     print(f"  {'─' * width}")
     for name, func in registry.items():
-        kind = "async" if inspect.iscoroutinefunction(func) else "sync"
+        kind = "async" if inspect.iscoroutinefunction(func.func) else "sync"
         print(f"  ✓  {name:<{max_len}}   [{kind}]")
     print(f"  {'─' * width}")
     print(f"  {len(registry)} task(s) registered\n")
 
 
 def recover_stuck_tasks():
+    r = redis.Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        decode_responses=True,
+        password=settings.REDIS_PASSWORD,
+    )
+
     stuck = r.lrange("tarsq:processing", 0, -1)
     if stuck:
-        sys_log("WARN", f"recovering {len(stuck)} stuck task(s) from previous run")
+        sys_log("WARN", f"recovering {len(stuck)} stuck job(s) left in processing from a previous run")
         for item in stuck:
             r.lpush("tarsq:queue", item)
         r.delete("tarsq:processing")
-        sys_log("INFO", "recovery complete")
+        sys_log("INFO", f"re-queued {len(stuck)} job(s) — they will be retried")
 
 
 def _load_settings(settings_path: str) -> WorkerSettings:
@@ -44,6 +55,9 @@ def _load_settings(settings_path: str) -> WorkerSettings:
 
 
 def start():
+    _manager = multiprocessing.Manager()
+    shutdown_event = _manager.Event()
+
     parser = argparse.ArgumentParser(description="Start tarsq workers")
     parser.add_argument(
         "--settings",
@@ -54,9 +68,7 @@ def start():
         "--app", type=str, help="Module containing task handlers (e.g. 'myapp.tasks')"
     )
     parser.add_argument("--workers", type=int, help="Number of workers (default: 5)")
-    parser.add_argument(
-        "--timeout", type=int, help="Task timeout in seconds (default: 300)"
-    )
+
     args = parser.parse_args()
 
     ws = WorkerSettings()
@@ -68,23 +80,20 @@ def start():
         ws.app = args.app
     if args.workers:
         ws.workers = args.workers
-    if args.timeout:
-        ws.timeout = args.timeout
-    ctx = ws.ctx
-    if ws.app:
-        importlib.import_module(ws.app)
 
-    if ws.on_startup:
-        if inspect.iscoroutinefunction(ws.on_startup):
-            import asyncio
+    app = getattr(ws, "app", None)
+    workers = getattr(ws, "workers", 5)
+    on_startup = getattr(ws, "on_startup", None)
+    on_shutdown = getattr(ws, "on_shutdown", None)
+    ctx = getattr(ws, "ctx", {})
 
-            asyncio.run(ws.on_startup(ctx))
-        else:
-
-            ws.on_startup(ctx)
+    if app:
+        importlib.import_module(app)
+    else:
+        sys_log("WARN", "no app configured — set WorkerSettings.app or pass --app <module>. tasks in external modules will not be registered")
 
     def handle_signal(sig, frame):
-        sys_log("WARN", "shutdown signal received — waiting for workers to finish")
+        sys_log("WARN", "shutdown signal received — draining workers")
         shutdown_event.set()
 
     signal.signal(signal.SIGINT, handle_signal)
@@ -92,44 +101,47 @@ def start():
 
     recover_stuck_tasks()
     print_registry()
-    sys_log("INFO", f"starting {ws.workers} workers")
+    sys_log("INFO", f"starting {workers} worker process(es)")
 
-    for i in range(ws.workers):
-        t = threading.Thread(
+    for i in range(workers):
+        p = multiprocessing.Process(
             target=worker,
-            args=(i,),
-            kwargs={"timeout": ws.timeout, "ctx": ctx},
-            daemon=True,
+            args=(i, app, shutdown_event, on_startup),
         )
-        threads.append(t)
+        processes.append(p)
 
     print()
-    for i, t in enumerate(threads):
+    for i, p in enumerate(processes):
         from tarsq.logger import log
 
         log(i, "INFO", "started")
-        t.start()
+        p.start()
 
     print()
-    threading.Thread(
+    p_worker = multiprocessing.Process(
         target=watch,
-        args=(ws.timeout,),
-        kwargs={"ctx": ctx},
+        args=(app, shutdown_event, on_startup),
+    )
+
+    multiprocessing.Process(
+        target=scheduler,
+        args=(shutdown_event,),
         daemon=True,
     ).start()
+    p_worker.start()
 
     while not shutdown_event.is_set():
         time.sleep(1)
 
-    for t in threads:
-        t.join()
+    for p in processes:
+        p.join()
 
-    if ws.on_shutdown:
-        if inspect.iscoroutinefunction(ws.on_shutdown):
+    if on_shutdown:
+        if inspect.iscoroutinefunction(on_shutdown):
             import asyncio
 
-            asyncio.run(ws.on_shutdown(ctx))
+            asyncio.run(on_shutdown(ctx))
         else:
-            ws.on_shutdown(ctx)
-
-    sys_log("INFO", "all workers stopped — goodbye")
+            on_shutdown(ctx)
+    p_worker.join()
+    sys_log("INFO", "all workers stopped")
