@@ -1,5 +1,7 @@
 from typing import Dict
 
+from croniter import croniter
+
 from tarsq.core.schemas import Task
 
 registry: Dict[str, Task] = {}
@@ -12,6 +14,10 @@ def task(
     timeout: int = 30,
     max_retries: int = 3,
 ):
+    if timeout <= 0:
+        raise ValueError(f"Timeout can't be less or equal to 0s: {timeout}")
+    if max_retries < 0:
+        raise ValueError("Retries can't be less than 0")
     """Register a function as a tarsq task handler.
 
     Decorates a function and adds it to the task registry under the given
@@ -55,8 +61,9 @@ CRON_PRESETS = {
 def schedule(name: str, cron: str = "0 9 * * *"):
     def decorator(func):
         resolved_cron = CRON_PRESETS.get(cron, cron)
+        if not croniter.is_valid(resolved_cron):
+            raise ValueError(f"Invalid cron expression: '{resolved_cron}'")
         cron_registry[name] = {"func": func, "cron": resolved_cron}
-
         return func
 
     return decorator
