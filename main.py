@@ -3,8 +3,8 @@ def on_startup(ctx):
 
 
 class WorkerSettings:
-    # app: str = "mock_tasks"
-    ctx: dict = {"crud_currency": "get_crud_currency"}
+    app: str = "mock_tasks"
+    # ctx: dict = {"crud_currency": "get_crud_currency"}
     on_startup = on_startup
     on_shutdown = None
     # workers: int = 5

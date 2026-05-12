@@ -113,7 +113,8 @@ def handle_retry(
 
 
 def worker(worker_id: int, app, shutdown_event, on_startup=None):
-    importlib.import_module(app)
+    if app:
+        importlib.import_module(app)
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     ctx = {}
@@ -249,7 +250,8 @@ def worker(worker_id: int, app, shutdown_event, on_startup=None):
 
 def watch(app, shutdown_event, on_startup=None):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    importlib.import_module(app)
+    if app:
+        importlib.import_module(app)
 
     while not shutdown_event.is_set():
         for i, p in enumerate(processes):

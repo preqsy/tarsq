@@ -90,6 +90,8 @@ def start():
 
     if app:
         importlib.import_module(app)
+    else:
+        sys_log("WARN", "no --app specified and WorkerSettings.app is not set — tasks registered in external modules won't be available")
 
     def handle_signal(sig, frame):
         sys_log("WARN", "shutdown signal received — waiting for workers to finish")
