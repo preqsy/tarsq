@@ -1,6 +1,6 @@
 [project]
 name = "tarsq"
-version = "0.1.16"
+version = "0.1.17"
 description = "A fast, production-ready task queue for Python"
 authors = [
     {name = "Preqsy",email = "obbyprecious24@gmail.com"}
