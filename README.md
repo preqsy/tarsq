@@ -1,6 +1,6 @@
 # tarsq
 
-A fast, production-ready task queue for Python backed by Redis.
+The background job runtime for Python. Tasks run in their own subprocess. Timeouts are hard kills. Crashed workers restart themselves.
 
 ## Features
 

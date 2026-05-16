@@ -281,6 +281,15 @@ def worker(worker_id: int, app, shutdown_event, on_startup=None):
 
         except ValueError as e:
             log(worker_id, "WARN", str(e))
+            updated_at = datetime.now(timezone.utc).isoformat()
+            r.hset(
+                f"tarsq:job:{job_id}",
+                mapping={
+                    "status": TaskStatusEnum.FAILED,
+                    "updated_at": updated_at,
+                },
+            )
+            r.lrem("tarsq:processing", 1, redis_value)
 
 
 def watch(app, shutdown_event, on_startup=None):
