@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tarsq Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: { zinc: { 950: '#09090b' } },
+          },
+        },
+      }
+    </script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      body { background: #09090b; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: #18181b; }
+      ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+    </style>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100">
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react">
+      const { useState, useEffect, useCallback, useMemo } = React;
+
+      // ─── Status helpers ──────────────────────────────────────────────────────
+
+      const STATUS_STYLE = {
+        queued:      'bg-amber-500/10 text-amber-400 ring-amber-500/20',
+        in_progress: 'bg-blue-500/10 text-blue-400 ring-blue-500/20',
+        completed:   'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20',
+        failed:      'bg-red-500/10 text-red-400 ring-red-500/20',
+      };
+      const STATUS_LABEL = {
+        queued: 'Queued', in_progress: 'In Progress',
+        completed: 'Completed', failed: 'Failed',
+      };
+
+      // ─── Mock data (shown when backend is not running) ────────────────────────
+
+      const TASKS = ['send_email','process_image','generate_report','sync_data','send_notification'];
+      const STATUSES = ['queued','in_progress','completed','completed','completed','failed'];
+
+      const MOCK_JOBS = Array.from({ length: 50 }, (_, i) => {
+        const status  = STATUSES[i % STATUSES.length];
+        const created = new Date(Date.now() - (i * 97_000 + Math.random() * 50_000)).toISOString();
+        return {
+          job_id:     `job_${Math.random().toString(36).slice(2, 14)}`,
+          task:       TASKS[i % TASKS.length],
+          status,
+          retries:    i % 3,
+          created_at: created,
+          updated_at: new Date(new Date(created).getTime() + 8_000 + i * 500).toISOString(),
+          payload:    { user_id: 100 + i, email: `user${i}@example.com` },
+        };
+      });
+
+      function mockStats() {
+        const c = MOCK_JOBS.reduce((a, j) => { a[j.status] = (a[j.status] || 0) + 1; return a; }, {});
+        return { total: MOCK_JOBS.length, queued: c.queued || 0, in_progress: c.in_progress || 0, completed: c.completed || 0, failed: c.failed || 0 };
+      }
+
+      const MOCK_WORKERS = Array.from({ length: 5 }, (_, i) => ({
+        worker_id:   i + 1,
+        status:      'active',
+        current_job: i % 2 === 0 ? TASKS[i % TASKS.length] : null,
+        uptime:      `${2 + i}h ${30 + i * 3}m`,
+      }));
+
+      const MOCK_SCHEDULES = [
+        { name: 'daily_report',    cron: '0 9 * * *',    last_run: new Date(Date.now() - 3_600_000).toISOString(),  next_run: new Date(Date.now() + 72_000_000).toISOString() },
+        { name: 'cleanup_old_jobs',cron: '0 0 * * 0',    last_run: new Date(Date.now() - 86_400_000).toISOString(), next_run: new Date(Date.now() + 518_400_000).toISOString() },
+        { name: 'sync_users',      cron: '*/15 * * * *', last_run: new Date(Date.now() - 600_000).toISOString(),    next_run: new Date(Date.now() + 300_000).toISOString() },
+      ];
+
+      // ─── API client ───────────────────────────────────────────────────────────
+
+      async function apiGet(path) {
+        try {
+          const res = await fetch(`/api${path}`, { headers: { Accept: 'application/json' } });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch {
+          // Fallback to mock data
+          if (path === '/stats') return mockStats();
+          if (path === '/jobs') return { jobs: MOCK_JOBS, total: MOCK_JOBS.length };
+          if (path === '/workers') return { workers: MOCK_WORKERS };
+          if (path === '/schedules') return { schedules: MOCK_SCHEDULES };
+          if (path.startsWith('/jobs/')) {
+            const id = path.split('/').pop();
+            return MOCK_JOBS.find(j => j.job_id === id) || null;
+          }
+          return null;
+        }
+      }
+
+      // ─── Shared components ────────────────────────────────────────────────────
+
+      function StatusBadge({ status }) {
+        return (
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_STYLE[status] || 'bg-zinc-500/10 text-zinc-400 ring-zinc-500/20'}`}>
+            {STATUS_LABEL[status] || status}
+          </span>
+        );
+      }
+
+      function StatCard({ label, value, color = 'zinc' }) {
+        const c = { zinc: 'text-zinc-100', amber: 'text-amber-400', blue: 'text-blue-400', emerald: 'text-emerald-400', red: 'text-red-400' };
+        return (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+            <p className="text-sm text-zinc-500">{label}</p>
+            <p className={`mt-1 text-3xl font-semibold tabular-nums ${c[color]}`}>{value}</p>
+          </div>
+        );
+      }
+
+      function Spinner() {
+        return (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-700 border-t-indigo-500" />
+          </div>
+        );
+      }
+
+      function Skeleton({ rows = 5 }) {
+        return (
+          <div className="space-y-3">
+            {Array.from({ length: rows }).map((_, i) => (
+              <div key={i} className="h-11 rounded-lg bg-zinc-800/50 animate-pulse" />
+            ))}
+          </div>
+        );
+      }
+
+      function Empty({ msg }) {
+        return <p className="py-12 text-center text-sm text-zinc-600">{msg}</p>;
+      }
+
+      function fmt(iso) {
+        if (!iso) return '—';
+        return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      }
+
+      function fmtLong(iso) {
+        if (!iso) return '—';
+        return new Date(iso).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
+
+      // ─── Views ────────────────────────────────────────────────────────────────
+
+      function Overview({ nav }) {
+        const [stats, setStats]   = useState(null);
+        const [jobs, setJobs]     = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [spin, setSpin]     = useState(false);
+
+        const load = useCallback(async () => {
+          const [s, j] = await Promise.all([apiGet('/stats'), apiGet('/jobs')]);
+          setStats(s);
+          setJobs([...(j?.jobs || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 8));
+          setLoading(false);
+        }, []);
+
+        useEffect(() => { load(); const id = setInterval(load, 10_000); return () => clearInterval(id); }, [load]);
+
+        async function refresh() { setSpin(true); await load(); setSpin(false); }
+
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-semibold text-zinc-100">Overview</h1>
+                <p className="mt-0.5 text-sm text-zinc-500">Real-time job queue metrics</p>
+              </div>
+              <button onClick={refresh} className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+                <svg className={`h-3.5 w-3.5 ${spin ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                Refresh
+              </button>
+            </div>
+
+            {loading
+              ? <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">{[...Array(5)].map((_, i) => <div key={i} className="h-24 rounded-xl border border-zinc-800 bg-zinc-900 animate-pulse" />)}</div>
+              : <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                  <StatCard label="Total Jobs"  value={(stats?.total       ?? 0).toLocaleString()} />
+                  <StatCard label="Queued"      value={(stats?.queued      ?? 0).toLocaleString()} color="amber" />
+                  <StatCard label="In Progress" value={(stats?.in_progress ?? 0).toLocaleString()} color="blue" />
+                  <StatCard label="Completed"   value={(stats?.completed   ?? 0).toLocaleString()} color="emerald" />
+                  <StatCard label="Failed"      value={(stats?.failed      ?? 0).toLocaleString()} color="red" />
+                </div>
+            }
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-medium text-zinc-300">Recent Jobs</h2>
+                <button onClick={() => nav('jobs')} className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">View all →</button>
+              </div>
+              {loading ? <Skeleton /> : jobs.length === 0 ? <Empty msg="No jobs yet" /> : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-800">
+                        {['Job ID','Task','Status','Retries','Created'].map(h => (
+                          <th key={h} className="pb-3 pr-4 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 last:pr-0">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/50">
+                      {jobs.map(j => (
+                        <tr key={j.job_id} onClick={() => nav('job-detail', j.job_id)} className="cursor-pointer hover:bg-zinc-800/40 transition-colors">
+                          <td className="py-3 pr-4 font-mono text-xs text-zinc-500">{j.job_id.slice(0, 16)}…</td>
+                          <td className="py-3 pr-4 font-medium text-zinc-200">{j.task}</td>
+                          <td className="py-3 pr-4"><StatusBadge status={j.status} /></td>
+                          <td className="py-3 pr-4 text-zinc-400">{j.retries}</td>
+                          <td className="py-3 text-xs text-zinc-500">{fmt(j.created_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      function Jobs({ nav }) {
+        const [allJobs, setAllJobs] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [search, setSearch]   = useState('');
+        const [filter, setFilter]   = useState('all');
+        const [page, setPage]       = useState(1);
+        const PAGE = 20;
+
+        const load = useCallback(async () => {
+          const d = await apiGet('/jobs');
+          setAllJobs([...(d?.jobs || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+          setLoading(false);
+        }, []);
+
+        useEffect(() => { load(); const id = setInterval(load, 10_000); return () => clearInterval(id); }, [load]);
+
+        const filtered = useMemo(() => allJobs.filter(j => {
+          const q = search.toLowerCase();
+          return (!q || j.job_id.includes(q) || j.task.toLowerCase().includes(q))
+              && (filter === 'all' || j.status === filter);
+        }), [allJobs, search, filter]);
+
+        const pages    = Math.max(1, Math.ceil(filtered.length / PAGE));
+        const paginated = filtered.slice((page - 1) * PAGE, page * PAGE);
+
+        return (
+          <div className="space-y-6">
+            <div>
+              <h1 className="text-xl font-semibold text-zinc-100">Jobs</h1>
+              <p className="mt-0.5 text-sm text-zinc-500">{filtered.length.toLocaleString()} job{filtered.length !== 1 ? 's' : ''}</p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <div className="relative flex-1 min-w-48">
+                <svg className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search by task name or job ID…"
+                  value={search}
+                  onChange={e => { setSearch(e.target.value); setPage(1); }}
+                  className="w-full rounded-lg border border-zinc-800 bg-zinc-900 py-2 pl-9 pr-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <select
+                value={filter}
+                onChange={e => { setFilter(e.target.value); setPage(1); }}
+                className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="all">All statuses</option>
+                <option value="queued">Queued</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+              </select>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              {loading ? <Skeleton rows={8} /> : paginated.length === 0 ? <Empty msg={allJobs.length === 0 ? 'No jobs yet' : 'No jobs match your filters'} /> : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-800">
+                          {['Job ID','Task','Status','Retries','Created','Updated'].map(h => (
+                            <th key={h} className="pb-3 pr-4 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 last:pr-0">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800/50">
+                        {paginated.map(j => (
+                          <tr key={j.job_id} onClick={() => nav('job-detail', j.job_id)} className="cursor-pointer hover:bg-zinc-800/40 transition-colors">
+                            <td className="py-3 pr-4 font-mono text-xs text-zinc-500">{j.job_id.slice(0, 14)}…</td>
+                            <td className="py-3 pr-4 font-medium text-zinc-200">{j.task}</td>
+                            <td className="py-3 pr-4"><StatusBadge status={j.status} /></td>
+                            <td className="py-3 pr-4 text-zinc-400">{j.retries}</td>
+                            <td className="py-3 pr-4 text-xs text-zinc-500">{fmt(j.created_at)}</td>
+                            <td className="py-3 text-xs text-zinc-500">{fmt(j.updated_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {pages > 1 && (
+                    <div className="mt-4 flex items-center justify-between border-t border-zinc-800 pt-4">
+                      <p className="text-xs text-zinc-500">Page {page} of {pages} · {filtered.length} results</p>
+                      <div className="flex gap-2">
+                        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                          className="rounded-md border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-700 hover:text-zinc-200 disabled:opacity-30 transition-colors">Previous</button>
+                        <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page === pages}
+                          className="rounded-md border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-700 hover:text-zinc-200 disabled:opacity-30 transition-colors">Next</button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      function JobDetail({ jobId, onBack }) {
+        const [job, setJob]       = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [notFound, setNotFound] = useState(false);
+
+        useEffect(() => {
+          apiGet(`/jobs/${jobId}`).then(d => {
+            if (!d) setNotFound(true); else setJob(d);
+            setLoading(false);
+          });
+        }, [jobId]);
+
+        if (loading) return <Spinner />;
+        if (notFound || !job) return (
+          <div className="py-16 text-center">
+            <p className="text-zinc-500">Job not found.</p>
+            <button onClick={onBack} className="mt-3 text-sm text-indigo-400 hover:text-indigo-300">← Back to Jobs</button>
+          </div>
+        );
+
+        const fields = [
+          ['Job ID',  <span className="font-mono text-xs">{job.job_id}</span>],
+          ['Task',    <span className="font-medium">{job.task}</span>],
+          ['Status',  <StatusBadge status={job.status} />],
+          ['Retries', <span>{job.retries}</span>],
+          ['Created', <span>{fmtLong(job.created_at)}</span>],
+          ['Updated', <span>{fmtLong(job.updated_at)}</span>],
+        ];
+
+        return (
+          <div className="space-y-6">
+            <div className="flex items-start gap-3">
+              <button onClick={onBack} className="mt-0.5 text-zinc-500 hover:text-zinc-300 transition-colors">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
+                </svg>
+              </button>
+              <div className="flex-1">
+                <div className="flex items-center gap-3">
+                  <h1 className="text-xl font-semibold text-zinc-100">Job Detail</h1>
+                  <StatusBadge status={job.status} />
+                </div>
+                <p className="mt-0.5 font-mono text-xs text-zinc-500">{job.job_id}</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              <h2 className="mb-2 text-sm font-medium text-zinc-400">Details</h2>
+              <dl className="divide-y divide-zinc-800">
+                {fields.map(([label, value]) => (
+                  <div key={label} className="flex items-start gap-4 py-3">
+                    <dt className="w-24 shrink-0 text-sm text-zinc-500">{label}</dt>
+                    <dd className="text-sm text-zinc-200">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            {job.payload && Object.keys(job.payload).length > 0 && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+                <h2 className="mb-3 text-sm font-medium text-zinc-400">Payload</h2>
+                <pre className="overflow-x-auto rounded-lg bg-zinc-950 p-4 font-mono text-xs text-zinc-300">
+                  {JSON.stringify(job.payload, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      function Workers() {
+        const [workers, setWorkers] = useState([]);
+        const [stats, setStats]     = useState(null);
+        const [loading, setLoading] = useState(true);
+
+        const load = useCallback(async () => {
+          const [w, s] = await Promise.all([apiGet('/workers'), apiGet('/stats')]);
+          setWorkers(w?.workers || []);
+          setStats(s);
+          setLoading(false);
+        }, []);
+
+        useEffect(() => { load(); const id = setInterval(load, 5_000); return () => clearInterval(id); }, [load]);
+
+        return (
+          <div className="space-y-6">
+            <div>
+              <h1 className="text-xl font-semibold text-zinc-100">Workers</h1>
+              <p className="mt-0.5 text-sm text-zinc-500">Worker process status · refreshes every 5s</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <StatCard label="Queue Depth" value={(stats?.queued      ?? '—').toString()} color="amber" />
+              <StatCard label="Processing"  value={(stats?.in_progress ?? '—').toString()} color="blue" />
+              <StatCard label="Workers"     value={workers.length.toString()} />
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              <h2 className="mb-4 text-sm font-medium text-zinc-400">Worker Processes</h2>
+              {loading ? <Skeleton /> : workers.length === 0 ? <Empty msg="No workers running" /> : (
+                <div className="space-y-2">
+                  {workers.map(w => (
+                    <div key={w.worker_id} className="flex items-center gap-4 rounded-lg border border-zinc-800 px-4 py-3">
+                      <div className={`h-2 w-2 shrink-0 rounded-full ${w.status === 'active' ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-zinc-200">Worker {w.worker_id}</p>
+                        <p className="truncate text-xs text-zinc-500">{w.current_job ? `Processing: ${w.current_job}` : 'Idle'}</p>
+                      </div>
+                      {w.uptime && <span className="shrink-0 text-xs text-zinc-600">{w.uptime}</span>}
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${w.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-500'}`}>
+                        {w.status || 'unknown'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      function Schedules() {
+        const [schedules, setSchedules] = useState([]);
+        const [loading, setLoading]     = useState(true);
+
+        const load = useCallback(async () => {
+          const d = await apiGet('/schedules');
+          setSchedules(d?.schedules || []);
+          setLoading(false);
+        }, []);
+
+        useEffect(() => { load(); const id = setInterval(load, 30_000); return () => clearInterval(id); }, [load]);
+
+        return (
+          <div className="space-y-6">
+            <div>
+              <h1 className="text-xl font-semibold text-zinc-100">Schedules</h1>
+              <p className="mt-0.5 text-sm text-zinc-500">{schedules.length} registered cron schedule{schedules.length !== 1 ? 's' : ''}</p>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              {loading ? <Skeleton rows={3} /> : schedules.length === 0 ? <Empty msg="No schedules registered" /> : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-800">
+                        {['Name','Cron Expression','Last Run','Next Run'].map(h => (
+                          <th key={h} className="pb-3 pr-4 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 last:pr-0">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/50">
+                      {schedules.map(s => (
+                        <tr key={s.name}>
+                          <td className="py-3 pr-4 font-medium text-zinc-200">{s.name}</td>
+                          <td className="py-3 pr-4">
+                            <span className="rounded bg-zinc-800 px-2 py-0.5 font-mono text-xs text-zinc-400">{s.cron}</span>
+                          </td>
+                          <td className="py-3 pr-4 text-xs text-zinc-500">{fmt(s.last_run)}</td>
+                          <td className="py-3 text-xs text-zinc-400">{fmt(s.next_run)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // ─── Sidebar ──────────────────────────────────────────────────────────────
+
+      const NAV_ITEMS = [
+        { key: 'overview',  label: 'Overview',  icon: <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> },
+        { key: 'jobs',      label: 'Jobs',      icon: <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6m-6 4h6"/></svg> },
+        { key: 'workers',   label: 'Workers',   icon: <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}><rect x="2" y="6" width="20" height="12" rx="2"/><path strokeLinecap="round" d="M6 10h.01M6 14h.01M10 10h4M10 14h4"/></svg> },
+        { key: 'schedules', label: 'Schedules', icon: <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}><circle cx="12" cy="12" r="9"/><path strokeLinecap="round" d="M12 6v6l3.5 3.5"/></svg> },
+      ];
+
+      function Sidebar({ view, nav }) {
+        return (
+          <aside className="flex h-screen w-56 shrink-0 flex-col border-r border-zinc-800 bg-zinc-900">
+            <div className="flex items-center gap-2.5 border-b border-zinc-800 px-4 py-4">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-500">
+                <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-zinc-100">Tarsq</p>
+                <p className="text-xs text-zinc-600">Task Queue</p>
+              </div>
+            </div>
+            <nav className="flex-1 space-y-0.5 px-2 py-3">
+              {NAV_ITEMS.map(({ key, label, icon }) => (
+                <button
+                  key={key}
+                  onClick={() => nav(key)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                    (view === key || (view === 'job-detail' && key === 'jobs'))
+                      ? 'bg-indigo-500/15 text-indigo-400'
+                      : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                  }`}
+                >
+                  <span className="shrink-0">{icon}</span>
+                  {label}
+                </button>
+              ))}
+            </nav>
+            <div className="border-t border-zinc-800 px-4 py-3">
+              <p className="text-xs text-zinc-600">Dashboard v0.1.0</p>
+            </div>
+          </aside>
+        );
+      }
+
+      // ─── App ──────────────────────────────────────────────────────────────────
+
+      function App() {
+        const [view, setView]         = useState('overview');
+        const [jobDetailId, setJobDetailId] = useState(null);
+
+        function nav(to, param) {
+          if (to === 'job-detail') { setJobDetailId(param); setView('job-detail'); }
+          else { setView(to); setJobDetailId(null); }
+        }
+
+        function renderView() {
+          switch (view) {
+            case 'overview':   return <Overview nav={nav} />;
+            case 'jobs':       return <Jobs nav={nav} />;
+            case 'workers':    return <Workers />;
+            case 'schedules':  return <Schedules />;
+            case 'job-detail': return <JobDetail jobId={jobDetailId} onBack={() => nav('jobs')} />;
+            default:           return <Overview nav={nav} />;
+          }
+        }
+
+        return (
+          <div className="flex h-screen overflow-hidden">
+            <Sidebar view={view} nav={nav} />
+            <main className="flex-1 overflow-y-auto">
+              <div className="mx-auto max-w-5xl px-8 py-8">
+                {renderView()}
+              </div>
+            </main>
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+  </body>
+</html>

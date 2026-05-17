@@ -18,6 +18,12 @@ dependencies = [
     "croniter (>=6.2.2,<7.0.0)"
 ]
 
+[project.optional-dependencies]
+dashboard = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/preqsy/tarsq"
 Repository = "https://github.com/preqsy/tarsq"
