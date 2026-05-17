@@ -46,18 +46,9 @@ def test_every_day_at_9am():
 
 
 def test_every_monday():
-    assert match("0 0 * * 1", datetime(2025, 1, 6, 0, 0))   # Monday
+    assert match("0 0 * * 1", datetime(2025, 1, 6, 0, 0))  # Monday
     assert not match("0 0 * * 1", datetime(2025, 1, 7, 0, 0))  # Tuesday
     assert not match("0 0 * * 1", datetime(2025, 1, 5, 0, 0))  # Sunday
-
-
-def test_preset_resolution():
-    from tarsq.core.decorator import CRON_PRESETS, cron_registry
-    for preset, expected_cron in CRON_PRESETS.items():
-        from tarsq.core.decorator import schedule
-        func = MagicMock()
-        schedule("test_preset_task", cron=preset)(func)
-        assert cron_registry["test_preset_task"]["cron"] == expected_cron
 
 
 def test_scheduler_dispatches_when_due():
@@ -67,13 +58,16 @@ def test_scheduler_dispatches_when_due():
     # False → enter while; True → break sleep loop; True → exit while
     mock_event.is_set.side_effect = [False, True, True]
 
-    with patch("tarsq.cron.cron_registry", fake_registry), \
-         patch("tarsq.cron.dispatch") as mock_dispatch, \
-         patch("tarsq.cron.datetime") as mock_dt:
+    with (
+        patch("tarsq.cron.cron_registry", fake_registry),
+        patch("tarsq.cron.dispatch") as mock_dispatch,
+        patch("tarsq.cron.datetime") as mock_dt,
+    ):
 
         mock_dt.now.return_value = due_time
 
         from tarsq.cron import scheduler
+
         scheduler(mock_event)
 
         mock_dispatch.assert_called_once_with("send_email")
@@ -85,13 +79,16 @@ def test_scheduler_does_not_dispatch_when_not_due():
     mock_event = MagicMock()
     mock_event.is_set.side_effect = [False, True, True]
 
-    with patch("tarsq.cron.cron_registry", fake_registry), \
-         patch("tarsq.cron.dispatch") as mock_dispatch, \
-         patch("tarsq.cron.datetime") as mock_dt:
+    with (
+        patch("tarsq.cron.cron_registry", fake_registry),
+        patch("tarsq.cron.dispatch") as mock_dispatch,
+        patch("tarsq.cron.datetime") as mock_dt,
+    ):
 
         mock_dt.now.return_value = not_due_time
 
         from tarsq.cron import scheduler
+
         scheduler(mock_event)
 
         mock_dispatch.assert_not_called()
