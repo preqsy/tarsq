@@ -48,5 +48,8 @@ def scheduler(shutdown_event, app):
             if shutdown_event.is_set():
                 break
             time.sleep(1)
+    keys = list(r.scan_iter("tarsq:cron:*"))
+    if keys:
+        r.delete(*keys)
 
     sys_log("CRON", "scheduler stopped")
