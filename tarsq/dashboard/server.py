@@ -55,3 +55,6 @@ def create_app(app: str | None = None) -> FastAPI:
         )
 
     return dashboard
+
+
+app = create_app()
