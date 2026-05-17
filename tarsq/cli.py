@@ -6,6 +6,7 @@ import signal
 import time
 
 import redis
+import uvicorn
 
 from tarsq.config import settings
 from tarsq.core.decorator import registry
@@ -60,6 +61,12 @@ def _load_settings(settings_path: str) -> WorkerSettings:
     return getattr(module, class_name)
 
 
+def _run_dashboard(app: str | None, port: int):
+    from tarsq.dashboard.server import create_app
+
+    uvicorn.run(create_app(app), host="127.0.0.1", port=port)
+
+
 def start():
     _manager = multiprocessing.Manager()
     shutdown_event = _manager.Event()
@@ -74,6 +81,7 @@ def start():
         "--app", type=str, help="Module containing task handlers (e.g. 'myapp.tasks')"
     )
     parser.add_argument("--workers", type=int, help="Number of workers (default: 5)")
+    parser.add_argument("--dashboard", type=int, help="Spawn up the dashboard")
 
     args = parser.parse_args()
 
@@ -95,6 +103,16 @@ def start():
 
     if app:
         importlib.import_module(app)
+
+    if args.dashboard:
+        multiprocessing.Process(
+            target=_run_dashboard,
+            args=(
+                app,
+                args.dashboard,
+            ),
+            daemon=True,
+        ).start()
     else:
         sys_log(
             "WARN",
