@@ -62,13 +62,15 @@ def test_scheduler_dispatches_when_due():
         patch("tarsq.cron.cron_registry", fake_registry),
         patch("tarsq.cron.dispatch") as mock_dispatch,
         patch("tarsq.cron.datetime") as mock_dt,
+        patch("tarsq.cron.importlib.import_module"),
+        patch("tarsq.cron.redis.Redis") as mock_redis,
     ):
-
+        mock_redis.return_value = MagicMock()
         mock_dt.now.return_value = due_time
 
         from tarsq.cron import scheduler
 
-        scheduler(mock_event)
+        scheduler(mock_event, "myapp")
 
         mock_dispatch.assert_called_once_with("send_email")
 
@@ -83,12 +85,14 @@ def test_scheduler_does_not_dispatch_when_not_due():
         patch("tarsq.cron.cron_registry", fake_registry),
         patch("tarsq.cron.dispatch") as mock_dispatch,
         patch("tarsq.cron.datetime") as mock_dt,
+        patch("tarsq.cron.importlib.import_module"),
+        patch("tarsq.cron.redis.Redis") as mock_redis,
     ):
-
+        mock_redis.return_value = MagicMock()
         mock_dt.now.return_value = not_due_time
 
         from tarsq.cron import scheduler
 
-        scheduler(mock_event)
+        scheduler(mock_event, "myapp")
 
         mock_dispatch.assert_not_called()
