@@ -5,7 +5,6 @@ from croniter import croniter
 from fastapi import APIRouter, HTTPException
 
 from tarsq.config import settings
-from tarsq.core.decorator import cron_registry
 
 router = APIRouter()
 
@@ -19,6 +18,7 @@ r = redis.Redis(
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _all_jobs() -> list[dict]:
     """Return all job hashes from Redis using a pipeline scan."""
     keys = list(r.scan_iter("tarsq:job:*", count=200))
@@ -31,6 +31,7 @@ def _all_jobs() -> list[dict]:
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
+
 
 @router.get("/stats")
 async def stats():
@@ -76,7 +77,7 @@ async def workers():
     """Return queue depth metrics (worker processes are not directly observable)."""
     try:
         queue_depth = r.llen("tarsq:queue")
-        processing  = r.llen("tarsq:processing")
+        processing = r.llen("tarsq:processing")
     except redis.RedisError:
         queue_depth = processing = 0
 
@@ -85,18 +86,21 @@ async def workers():
     try:
         raw = r.lrange("tarsq:processing", 0, -1)
         import json
+
         for i, item in enumerate(raw, start=1):
             try:
                 job = json.loads(item)
                 task_name = job.get("task", "unknown")
             except Exception:
                 task_name = "unknown"
-            worker_rows.append({
-                "worker_id": i,
-                "status": "active",
-                "current_job": task_name,
-                "uptime": None,
-            })
+            worker_rows.append(
+                {
+                    "worker_id": i,
+                    "status": "active",
+                    "current_job": task_name,
+                    "uptime": None,
+                }
+            )
     except redis.RedisError:
         pass
 
@@ -112,18 +116,25 @@ async def schedules():
     """Return registered @schedule entries with next-run times."""
     now = datetime.now(timezone.utc)
     rows = []
-    for name, entry in cron_registry.items():
-        cron_expr = entry["cron"]
+    keys = list(r.scan_iter("tarsq:cron:*"))
+    pipe = r.pipeline()
+    for key in keys:
+        pipe.hgetall(key)
+    entries: list[dict] = [e for e in pipe.execute() if e]
+    for entry in entries:
+        name = entry.get("func", "")
+        cron_expr = entry.get("cron", "")
         try:
-            cron = croniter(cron_expr, now)
-            next_run = cron.get_next(datetime).isoformat()
+            next_run = croniter(cron_expr, now).get_next(datetime).isoformat()
             prev_run = croniter(cron_expr, now).get_prev(datetime).isoformat()
         except Exception:
             next_run = prev_run = None
-        rows.append({
-            "name": name,
-            "cron": cron_expr,
-            "last_run": prev_run,
-            "next_run": next_run,
-        })
+        rows.append(
+            {
+                "name": name,
+                "cron": cron_expr,
+                "last_run": prev_run,
+                "next_run": next_run,
+            }
+        )
     return {"schedules": rows}
