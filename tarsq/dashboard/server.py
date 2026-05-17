@@ -18,11 +18,22 @@ import importlib
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from tarsq.dashboard.api import router as api_router
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+class _SPAStaticFiles(StaticFiles):
+
+    async def get_response(self, path: str, scope: Scope) -> FileResponse:
+        try:
+            return await super().get_response(path, scope)
+        except Exception:
+            return await super().get_response("index.html", scope)
 
 
 def create_app(app: str | None = None) -> FastAPI:
@@ -50,7 +61,7 @@ def create_app(app: str | None = None) -> FastAPI:
     if STATIC_DIR.exists():
         dashboard.mount(
             "/",
-            StaticFiles(directory=STATIC_DIR, html=True),
+            _SPAStaticFiles(directory=STATIC_DIR, html=True),
             name="static",
         )
 
