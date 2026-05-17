@@ -1,4 +1,6 @@
-const VALUE_COLOR = {
+type StatColor = 'zinc' | 'amber' | 'blue' | 'emerald' | 'red'
+
+const VALUE_COLOR: Record<StatColor, string> = {
   zinc:    'text-zinc-100',
   amber:   'text-amber-400',
   blue:    'text-blue-400',
@@ -6,7 +8,13 @@ const VALUE_COLOR = {
   red:     'text-red-400',
 }
 
-export default function StatCard({ label, value, color = 'zinc' }) {
+interface StatCardProps {
+  label: string
+  value: string
+  color?: StatColor
+}
+
+export default function StatCard({ label, value, color = 'zinc' }: StatCardProps) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
       <p className="text-sm text-zinc-500">{label}</p>

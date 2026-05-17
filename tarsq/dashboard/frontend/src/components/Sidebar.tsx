@@ -1,11 +1,17 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Briefcase, Cpu, Clock } from 'lucide-react'
+import { LayoutDashboard, Briefcase, Cpu, Clock, type LucideIcon } from 'lucide-react'
 
-const nav = [
+interface NavItem {
+  to: string
+  label: string
+  Icon: LucideIcon
+}
+
+const nav: NavItem[] = [
   { to: '/overview', label: 'Overview', Icon: LayoutDashboard },
-  { to: '/jobs', label: 'Jobs', Icon: Briefcase },
-  { to: '/workers', label: 'Workers', Icon: Cpu },
-  { to: '/schedules', label: 'Schedules', Icon: Clock },
+  { to: '/jobs',     label: 'Jobs',     Icon: Briefcase },
+  { to: '/workers',  label: 'Workers',  Icon: Cpu },
+  { to: '/schedules',label: 'Schedules',Icon: Clock },
 ]
 
 export default function Sidebar() {

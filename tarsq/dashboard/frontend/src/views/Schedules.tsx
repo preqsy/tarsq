@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
+import type { Schedule } from '../types'
 
-function fmt(iso) {
+function fmt(iso: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-US', {
     month: 'short',
@@ -12,22 +13,22 @@ function fmt(iso) {
 }
 
 export default function Schedules() {
-  const [schedules, setSchedules] = useState([])
+  const [schedules, setSchedules] = useState<Schedule[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    async function load() {
+    async function load(): Promise<void> {
       try {
         const data = await api.schedules()
-        setSchedules(data.schedules ?? [])
+        setSchedules(data.schedules)
       } catch {
         // ignore
       } finally {
         setLoading(false)
       }
     }
-    load()
-    const id = setInterval(load, 30_000)
+    void load()
+    const id = setInterval(() => { void load() }, 30_000)
     return () => clearInterval(id)
   }, [])
 

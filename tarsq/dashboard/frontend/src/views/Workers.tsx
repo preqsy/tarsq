@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
 import StatCard from '../components/StatCard'
+import type { Worker, StatsResponse } from '../types'
 
 export default function Workers() {
-  const [workers, setWorkers] = useState([])
-  const [stats, setStats] = useState(null)
+  const [workers, setWorkers] = useState<Worker[]>([])
+  const [stats, setStats] = useState<StatsResponse | null>(null)
   const [loading, setLoading] = useState(true)
 
-  async function load() {
+  async function load(): Promise<void> {
     try {
       const [w, s] = await Promise.all([api.workers(), api.stats()])
-      setWorkers(w.workers ?? [])
+      setWorkers(w.workers)
       setStats(s)
     } catch {
       // ignore
@@ -20,8 +21,8 @@ export default function Workers() {
   }
 
   useEffect(() => {
-    load()
-    const id = setInterval(load, 5_000)
+    void load()
+    const id = setInterval(() => { void load() }, 5_000)
     return () => clearInterval(id)
   }, [])
 
@@ -36,7 +37,7 @@ export default function Workers() {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <StatCard
           label="Queue Depth"
-          value={(stats?.queued ?? '—').toString()}
+          value={(stats?.queued      ?? '—').toString()}
           color="amber"
         />
         <StatCard
@@ -90,7 +91,7 @@ export default function Workers() {
                       : 'bg-zinc-500/10 text-zinc-500'
                   }`}
                 >
-                  {w.status ?? 'unknown'}
+                  {w.status}
                 </span>
               </div>
             ))}

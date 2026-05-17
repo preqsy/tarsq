@@ -4,8 +4,9 @@ import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import StatCard from '../components/StatCard'
 import StatusBadge from '../components/StatusBadge'
+import type { Job, StatsResponse } from '../types'
 
-function fmt(iso) {
+function fmt(iso: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-US', {
     month: 'short',
@@ -17,19 +18,19 @@ function fmt(iso) {
 
 export default function Overview() {
   const navigate = useNavigate()
-  const [stats, setStats] = useState(null)
-  const [recentJobs, setRecentJobs] = useState([])
+  const [stats, setStats] = useState<StatsResponse | null>(null)
+  const [recentJobs, setRecentJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  async function load() {
+  async function load(): Promise<void> {
     try {
       const [s, j] = await Promise.all([api.stats(), api.jobs({ limit: 8 })])
       setStats(s)
       setRecentJobs(
-        [...(j.jobs ?? [])].sort(
-          (a, b) => new Date(b.created_at) - new Date(a.created_at),
-        ).slice(0, 8),
+        [...j.jobs]
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 8),
       )
     } catch {
       // silently ignore — backend may not be running yet
@@ -39,12 +40,12 @@ export default function Overview() {
   }
 
   useEffect(() => {
-    load()
-    const id = setInterval(load, 10_000)
+    void load()
+    const id = setInterval(() => { void load() }, 10_000)
     return () => clearInterval(id)
   }, [])
 
-  async function handleRefresh() {
+  async function handleRefresh(): Promise<void> {
     setRefreshing(true)
     await load()
     setRefreshing(false)
@@ -59,7 +60,7 @@ export default function Overview() {
           <p className="mt-0.5 text-sm text-zinc-500">Real-time job queue metrics</p>
         </div>
         <button
-          onClick={handleRefresh}
+          onClick={() => { void handleRefresh() }}
           className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
@@ -76,11 +77,11 @@ export default function Overview() {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          <StatCard label="Total Jobs" value={(stats?.total ?? 0).toLocaleString()} />
-          <StatCard label="Queued" value={(stats?.queued ?? 0).toLocaleString()} color="amber" />
-          <StatCard label="In Progress" value={(stats?.in_progress ?? 0).toLocaleString()} color="blue" />
-          <StatCard label="Completed" value={(stats?.completed ?? 0).toLocaleString()} color="emerald" />
-          <StatCard label="Failed" value={(stats?.failed ?? 0).toLocaleString()} color="red" />
+          <StatCard label="Total Jobs"   value={(stats?.total       ?? 0).toLocaleString()} />
+          <StatCard label="Queued"       value={(stats?.queued      ?? 0).toLocaleString()} color="amber" />
+          <StatCard label="In Progress"  value={(stats?.in_progress ?? 0).toLocaleString()} color="blue" />
+          <StatCard label="Completed"    value={(stats?.completed   ?? 0).toLocaleString()} color="emerald" />
+          <StatCard label="Failed"       value={(stats?.failed      ?? 0).toLocaleString()} color="red" />
         </div>
       )}
 

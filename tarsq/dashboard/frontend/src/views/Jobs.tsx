@@ -3,10 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { Search } from 'lucide-react'
 import { api } from '../api'
 import StatusBadge from '../components/StatusBadge'
+import type { Job, JobStatus } from '../types'
 
 const PAGE_SIZE = 20
 
-function fmt(iso) {
+type StatusFilter = 'all' | JobStatus
+
+function fmt(iso: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-US', {
     month: 'short',
@@ -18,19 +21,19 @@ function fmt(iso) {
 
 export default function Jobs() {
   const navigate = useNavigate()
-  const [jobs, setJobs] = useState([])
+  const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [page, setPage] = useState(1)
 
   useEffect(() => {
-    async function load() {
+    async function load(): Promise<void> {
       try {
         const data = await api.jobs()
         setJobs(
-          [...(data.jobs ?? [])].sort(
-            (a, b) => new Date(b.created_at) - new Date(a.created_at),
+          [...data.jobs].sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
           ),
         )
       } catch {
@@ -39,8 +42,8 @@ export default function Jobs() {
         setLoading(false)
       }
     }
-    load()
-    const id = setInterval(load, 10_000)
+    void load()
+    const id = setInterval(() => { void load() }, 10_000)
     return () => clearInterval(id)
   }, [])
 
@@ -56,12 +59,13 @@ export default function Jobs() {
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
 
-  function handleFilter(val) {
-    setStatusFilter(val)
+  function handleFilter(val: string): void {
+    // Value originates from our own <option> elements; cast is safe.
+    setStatusFilter(val as StatusFilter)
     setPage(1)
   }
 
-  function handleSearch(val) {
+  function handleSearch(val: string): void {
     setSearch(val)
     setPage(1)
   }
@@ -84,13 +88,13 @@ export default function Jobs() {
             type="text"
             placeholder="Search by task name or job ID…"
             value={search}
-            onChange={(e) => handleSearch(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
             className="w-full rounded-lg border border-zinc-800 bg-zinc-900 py-2 pl-9 pr-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </div>
         <select
           value={statusFilter}
-          onChange={(e) => handleFilter(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleFilter(e.target.value)}
           className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
         >
           <option value="all">All statuses</option>
