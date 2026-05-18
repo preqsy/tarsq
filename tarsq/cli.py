@@ -61,10 +61,10 @@ def _load_settings(settings_path: str) -> WorkerSettings:
     return getattr(module, class_name)
 
 
-def _run_dashboard(app: str | None, port: int):
+def _run_dashboard(app: str | None, port: int, host: str):
     from tarsq.dashboard.server import create_app
 
-    uvicorn.run(create_app(app), host="127.0.0.1", port=port)
+    uvicorn.run(create_app(app), host=host, port=port)
 
 
 def start():
@@ -81,7 +81,13 @@ def start():
         "--app", type=str, help="Module containing task handlers (e.g. 'myapp.tasks')"
     )
     parser.add_argument("--workers", type=int, help="Number of workers (default: 5)")
-    parser.add_argument("--dashboard", type=int, help="Spawn up the dashboard")
+    parser.add_argument(
+        "--dashboard", action="store_true", help="Spawn up the dashboard"
+    )
+    parser.add_argument("--port", type=int, help="Spawn up the dashboard", default=8080)
+    parser.add_argument(
+        "--host", type=str, help="Spawn up the dashboard", default="127.0.0.1"
+    )
 
     args = parser.parse_args()
 
@@ -109,7 +115,8 @@ def start():
             target=_run_dashboard,
             args=(
                 app,
-                args.dashboard,
+                args.port,
+                args.host,
             ),
             daemon=True,
         ).start()
