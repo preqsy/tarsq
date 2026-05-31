@@ -71,7 +71,7 @@ def _build_error_message(expr: str) -> str:
         '    cron="every 15 minutes"',
         '    cron="0 9 * * 1-5"',
         "",
-        "See docs/scheduling_phrases.md for the full list of supported phrases.",
+        "Full phrase list: https://tarsq.dev/docs#schedule",
     ]
 
     suggestion = _closest_phrase(expr.strip().lower())
