@@ -9,3 +9,8 @@ tasks.py
 scale-test
 scale_settings.py
 scale_tasks.py
+
+# frontend
+tarsq/dashboard/frontend/node_modules
+tarsq/dashboard/frontend/dist
+tarsq/dashboard/API_DESIGN.md

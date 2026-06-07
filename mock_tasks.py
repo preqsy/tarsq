@@ -2,7 +2,7 @@ import time
 from tarsq.core.decorator import task, schedule
 
 
-# @schedule(name="send_email", cron="every minute")  # Cron Jobs
+@schedule(name="send_email", cron="every minute")  # Cron Jobs
 @task(
     name="send_email",
     max_retries=1,
@@ -10,7 +10,7 @@ from tarsq.core.decorator import task, schedule
 )
 async def send_email(ctx, payload):
     print(f"This is the context: {ctx}")
-    email = payload["email"]
+    email = payload.get("email")
     time.sleep(4)
     print(f"  -> email sent: to: {email}")
 

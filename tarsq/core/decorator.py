@@ -1,8 +1,7 @@
 from typing import Dict
 
-from croniter import croniter
-
 from tarsq.core.schemas import Task
+from tarsq.scheduling import _normalize_schedule
 
 registry: Dict[str, Task] = {}
 cron_registry = {}
@@ -57,16 +56,6 @@ def task(
     return decorator
 
 
-CRON_PRESETS = {
-    "every minute": "* * * * *",
-    "every 5 minutes": "*/5 * * * *",
-    "every hour": "0 * * * *",
-    "every day at midnight": "0 0 * * *",
-    "every day at 9am": "0 9 * * *",
-    "every monday": "0 0 * * 1",
-}
-
-
 def schedule(name: str, cron: str = "0 9 * * *"):
     """Register a function as a recurring scheduled task.
 
@@ -74,25 +63,18 @@ def schedule(name: str, cron: str = "0 9 * * *"):
     evaluates registered crons every minute and dispatches a job whenever
     a cron expression matches the current time.
 
-    Accepts either a standard 5-field cron expression or one of the built-in
-    human-readable presets defined in CRON_PRESETS.
+    Accepts either a standard 5-field cron expression or a natural-language
+    phrase (see docs/scheduling_phrases.md for the full list).
 
     Args:
         name: Unique identifier for this scheduled task.
-        cron: A 5-field cron expression (e.g. "0 9 * * *") or a preset
-            string (e.g. "every hour"). Defaults to "0 9 * * *" (daily at 9am).
+        cron: A 5-field cron expression (e.g. "0 9 * * *") or a
+            natural-language phrase (e.g. "every weekday at 9:30am").
+            Defaults to "0 9 * * *" (daily at 9am).
 
     Raises:
-        ValueError: If the cron expression is not valid and doesn't match
-            any preset.
-
-    Available presets:
-        "every minute"          → * * * * *
-        "every 5 minutes"       → */5 * * * *
-        "every hour"            → 0 * * * *
-        "every day at midnight" → 0 0 * * *
-        "every day at 9am"      → 0 9 * * *
-        "every monday"          → 0 0 * * 1
+        InvalidSchedule: If the cron expression is not valid and doesn't
+            match any recognised phrase.
 
     Example:
         @schedule("daily_report", cron="every day at 9am")
@@ -104,9 +86,7 @@ def schedule(name: str, cron: str = "0 9 * * *"):
             purge_old_records()
     """
     def decorator(func):
-        resolved_cron = CRON_PRESETS.get(cron, cron)
-        if not croniter.is_valid(resolved_cron):
-            raise ValueError(f"Invalid cron expression: '{resolved_cron}'")
+        resolved_cron = _normalize_schedule(cron)
         cron_registry[name] = {"func": func, "cron": resolved_cron}
         return func
 
