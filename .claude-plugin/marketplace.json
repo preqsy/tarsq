@@ -1,0 +1,22 @@
+{
+  "name": "tarsq",
+  "owner": {
+    "name": "Preqsy",
+    "email": "obbyprecious24@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "tarsq",
+      "description": "Write correct tarsq background jobs with Claude Code. Teaches tarsq's real conventions for @task, @schedule, dispatch(), status(), and WorkerSettings so generated job code follows them instead of defaulting to Celery or RQ idioms.",
+      "category": "development",
+      "tags": [
+        "tarsq",
+        "background-jobs",
+        "task-queue",
+        "redis",
+        "python"
+      ],
+      "source": "./"
+    }
+  ]
+}

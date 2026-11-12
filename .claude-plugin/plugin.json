@@ -1,0 +1,23 @@
+{
+  "name": "tarsq",
+  "version": "0.1.0",
+  "description": "Write correct tarsq background jobs with Claude Code. Teaches tarsq's real conventions for @task, @schedule, dispatch(), status(), and WorkerSettings so generated job code follows them instead of defaulting to Celery or RQ idioms.",
+  "author": {
+    "name": "Preqsy",
+    "email": "obbyprecious24@gmail.com"
+  },
+  "homepage": "https://github.com/preqsy/tarsq",
+  "repository": "https://github.com/preqsy/tarsq",
+  "license": "MIT",
+  "keywords": [
+    "tarsq",
+    "background-jobs",
+    "task-queue",
+    "job-queue",
+    "redis",
+    "python",
+    "cron",
+    "workers"
+  ],
+  "skills": "./skills/"
+}
