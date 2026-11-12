@@ -198,6 +198,17 @@ tarsq [--settings <path>] [--app <module>] [--workers <n>]
 
 CLI args take priority over `WorkerSettings`.
 
+## Claude Code plugin
+
+tarsq ships a Claude Code skill that teaches Claude tarsq's real conventions — handler signature, retry and timeout semantics, scheduling, and the fact that there is no result backend — so job code it writes follows them instead of defaulting to Celery or RQ idioms.
+
+```
+/plugin marketplace add preqsy/tarsq
+/plugin install tarsq
+```
+
+The skill then triggers automatically whenever you ask Claude to add or modify a background job, and can be invoked directly with `/tarsq:tarsq-jobs`. Source lives in [`skills/tarsq-jobs/`](skills/tarsq-jobs/).
+
 ## License
 
 MIT
